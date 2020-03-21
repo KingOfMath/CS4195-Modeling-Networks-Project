@@ -1,7 +1,10 @@
 ## DataSet
 
 * http://snap.stanford.edu/data/
+  * CollegeMsg
 * http://konect.uni-koblenz.de
+  * Dutch college
+  * MovieLens 100k (with rate)
 
 ## Sprints
 
