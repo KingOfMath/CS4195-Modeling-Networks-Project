@@ -8,5 +8,6 @@
 * key features
 * parse data
 * novel methods
+  * random walk algorithm (random find path and traverse)
 * visualize
 * gain insights
