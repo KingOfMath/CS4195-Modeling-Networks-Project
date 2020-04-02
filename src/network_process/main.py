@@ -1,11 +1,4 @@
-# coding=utf-8
-import util.read_file as rf
+from temporal_network import TemporalNetworkWrapper
 
-metadata_path = "../../sources/rel.rating"
-UserNodeNum = 943
-MovieNodeNum = 1682
-EdgeNum = 100000
-
-if __name__ == '__main__':
-    data = rf.parseData(metadata_path)
-    print(data[0])
+tn = TemporalNetworkWrapper("network.json")
+tn = tn.to_teneto()
