@@ -101,3 +101,9 @@ class TemporalNetworkWrapper:
         ttn = tnTeneto()
         ttn.network_from_edgelist(self.edges)
         return ttn
+    
+    def to_networkX(self):
+        G = nx.Graph()
+        for e in self.edges:
+            G.add_edge(e[0], e[1], weight=e[3])
+        return G
