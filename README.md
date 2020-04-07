@@ -33,7 +33,7 @@ Attributes:
 * self.**users**: list of user ids
 * self.**movies**: list of movie ids
 * self.**edges**: list of edges formatted as (n1, n2, w, ts)
-* self.**temporal_edges**: list of edges list. In **temporal_edges[i]** are stored all edges formatted as **[n1,n2,w] with timestamp i**.
+* self.**temporal_edges**: list of edges list. In **temporal_edges[i]** are stored all edges formatted as **[user_id,movie_id,w] with timestamp i**.
 * self.**timestamps**: list of ordered timestamps
 
 **network.json**:
