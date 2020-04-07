@@ -1,8 +1,6 @@
-from temporal_network import TemporalNetworkWrapper
+from temporal_network import BipartiteTemporalNetwork
+import chart_studio.plotly
+import plotly.graph_objs as go
 
-# First run: specify source file rel.rating tn = TemporalNetworkWrapper("network.json", "ral.rating")
-# if .json doesn't alredy exist in sources dir.
-tn = TemporalNetworkWrapper("network.json")
 
-# Example to teneto
-tn = tn.to_teneto()
+tn = BipartiteTemporalNetwork("network.json")
