@@ -27,10 +27,11 @@
 * tacoma
 * networkx
 
-## TemporalNetworkWrapper class
+## BipartiteTemporalNetwork class
 
 Attributes:
-* self.**nodes**: list of nodes
+* self.**users**: list of user ids
+* self.**movies**: list of movie ids
 * self.**edges**: list of edges formatted as (n1, n2, w, ts)
 * self.**temporal_edges**: list of edges list. In **temporal_edges[i]** are stored all edges formatted as **[n1,n2,w] with timestamp i**.
 * self.**timestamps**: list of ordered timestamps
@@ -41,8 +42,8 @@ Attributes:
 
 ### Init temporal network
 ``` python
-from temporal_network import TemporalNetworkWrapper
-tn = TemporalNetworkWrapper() # empty temporal_network
-tn = TemporalNetworkWrapper("network.json") # if exists, initialize from json
-tn = TemporalNetworkWrapper("network.json", "ral.rating") # if doesn't exist, read from ral.rating and save in network.json
+from temporal_network import BipartiteTemporalNetwork
+tn = BipartiteTemporalNetwork() # empty temporal_network
+tn = BipartiteTemporalNetwork("network.json") # if exists, initialize from json
+tn = BipartiteTemporalNetwork("network.json", "ral.rating") # if doesn't exist, read from ral.rating and save in network.json
 ```
