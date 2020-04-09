@@ -9,6 +9,7 @@
 ## Sprints
 
 * novel methods
+  * https://arxiv.org/pdf/1905.08108.pdf - Neural Graph Collaborative Filtering (https://github.com/xiangwang1223/neural_graph_collaborative_filtering)
   * random walk algorithm (random find path and traverse)
   * spanning tree (treelib)
   * adjacency matrix
