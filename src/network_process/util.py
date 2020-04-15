@@ -24,11 +24,18 @@ def generate_bipartite_graph(raws_file=None):
         print("[NETWORK INIT] Read network from sources/" + raws_file)
         raws = parseData("../../sources/" + raws_file)
         raws = raws_to_tuple(raws)
+        raws.sort()
         G = nx.Graph()
         for e in raws:
-            G.add_node(e[0], bipartite=0)
-            G.add_node(e[1] + 943, bipartite=1)
-            G.add_edge(e[0], e[1] + 943, weight=e[2], timestamp=e[3])
+            i = e[0]
+            j = e[1] + 1000
+            w = e[2]
+            t = e[3]
+            if i not in G.nodes:
+                G.add_node(i, bipartite=0)
+            if j not in G.nodes:
+                G.add_node(j, bipartite=1)
+            G.add_edge(i, j, weight=w, timestamp=t)
         print("[NETWORK INIT] Bipartite Graph generate")
     else:
         print("[ERROR] Specify source file")

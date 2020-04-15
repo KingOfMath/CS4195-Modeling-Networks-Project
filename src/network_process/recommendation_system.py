@@ -3,22 +3,58 @@ from util import generate_bipartite_graph
 from networkx.algorithms import bipartite
 from collections import Counter
 from math import log2
+import numpy as np
+from scipy.spatial.distance import cosine as cos_dist
+import progressbar
+
+
+def get_column(i, R):
+    return [row[i] for row in R]
+
+
+def vertical_padding(m, n, M):
+    for i in range(0, m - n):
+        pad = np.zeros((n + 1 + i, n))
+        pad[:-1, :] = M
+        M = pad
+    return M
 
 
 class RS:
     def __init__(self, G):
         self.G = G
         self.users, self.items = bipartite.sets(self.G)
-        self.R = bipartite.matrix.biadjacency_matrix(self.G, self.users).toarray().tolist()
+        self.R = bipartite.matrix.biadjacency_matrix(self.G, self.items).toarray().tolist()
+        self.U, self.S, self.V = np.linalg.svd(self.R)
         self.R_abs_i = None
         self.target = None
 
+    def info(self):
+        print()
+        print("---- SYSTEM INFO ----")
+        print("Bipartite: " + str(nx.is_connected(self.G)))
+        print(
+            "Users: " + str(len(self.users)) + " labels: [" + str(min(self.users)) + ", " + str(max(self.users)) + "]")
+        print(
+            "Items: " + str(len(self.items)) + " labels: [" + str(min(self.items)) + ", " + str(max(self.items)) + "]")
+        print("R: (" + str(len(self.R)) + ", " + str(len(self.R[0])) + ") raws: [" + str(min(self.items)) +
+              ", " + str(max(self.items)) + "] cols: [" + str(min(self.users)) + ", " + str(max(self.users)) + "]")
+        print("U: " + str(self.U.shape))
+        print("V: " + str(self.V.shape))
+        print("S: " + str(self.S.shape))
+        print()
+
     def commons_items(self, node_i, node_j):
-        return [x for x in nx.common_neighbors(self.G, node_i, node_j)]
+        l = [x for x in nx.common_neighbors(self.G, node_i, node_j)]
+        l.sort()
+        return l
 
     def set_target_user(self, user):
         self.target = user
         self.abs_difference_rating_matr(self.target)
+
+    def vectorize_users(self, user, dim=4):
+        return get_column(user - 1, self.V)[0:dim]
 
     def abs_difference_rating_matr(self, user_i):
         self.R_abs_i = {u: {} for u in self.users if u != user_i}
@@ -27,7 +63,7 @@ class RS:
                 commons = self.commons_items(user_i, user_j)
                 dict = {}
                 for c in commons:
-                    dict[c] = abs(self.R[user_i - 1][c - 944] - self.R[user_j - 1][c - 944])
+                    dict[c] = abs(self.R[c - min(self.items)][user_i - 1] - self.R[c - min(self.items)][user_j - 1])
                 self.R_abs_i[user_j] = dict
 
     def count_abs_rating_difference(self, user_j):
@@ -46,13 +82,13 @@ class RS:
         return dict
 
     def avg_rate(self, user_id):
-        rates = [x for x in self.R[user_id - 1] if x != 0]
+        rates = [x for x in get_column(user_id - 1, self.R) if x != 0]
         return sum(rates) / len(rates)
 
     def de(self, user_i, user_j, item):
         return abs(
-            (self.R[user_i - 1][item - 944] - self.avg_rate(user_i)) - (
-                    self.R[user_j - 1][item - 944] - self.avg_rate(user_j)))
+            (self.R[item - min(self.items)][user_i - 1] - self.avg_rate(user_i)) - (
+                    self.R[item - min(self.items)][user_j - 1] - self.avg_rate(user_j)))
 
     def deviation(self, user_i, user_j, I):
         commons = self.commons_items(user_i, user_j)
@@ -69,6 +105,8 @@ class RS:
         H = 0
         for i in range(0, I):
             pk = self.probability_function(user_i, user_j, commons[i], I)
+            if pk == 0.0:
+                pk = 0.000000000000000001
             H += pk * log2(pk)
         return -H
 
@@ -76,33 +114,68 @@ class RS:
         return 1 - (self.entropy(user_i, user_j, I) / log2(I))
 
     def simC(self, user_i, user_j):
-        c = len(self.commons_items(user_i, user_j))
-        m = (self.G.degree(user_i) + self.G.degree(user_j)) / 2
-        return c / m
+        ui = self.vectorize_users(user_i)
+        uj = self.vectorize_users(user_j)
+        sim = 1 - cos_dist(ui, uj)
+        return sim
 
-    def hybrid_similarity(self, user_i, user_j, I, beta):
-        return (beta * self.simC(user_i, user_j)) + ((1 - beta) * self.simE(user_i, user_j, I))
+    def hybrid_similarity(self, user_i, user_j, I, beta, verbose):
+        sim_c = self.simC(user_i, user_j)
+        sim_e = self.simE(user_i, user_j, I)
+        if verbose:
+            print("Cosine: " + str(sim_c))
+            print("Entropy: " + str(sim_e))
+        return (beta * sim_c) + ((1 - beta) * sim_e)
 
-    def compute_similar_users(self, thresh, verbose=True):
+    def compute_similar_users(self, thresh, beta, nodes=None, verbose=True):
         Wsum = self.weighted_sum(self.target)
-        beta = 0.56
         similar_users = []
         similarty_values = []
-        for j in self.users:
+        if nodes is None:
+            users_to_compute = self.users
+        else:
+            users_to_compute = nodes
+        bar = progressbar.ProgressBar()
+        for j in bar(users_to_compute):
             if j != self.target:
                 I = int(Wsum[j])
                 if I > 1:
-                    hs = self.hybrid_similarity(self.target, j, I, beta)
+                    hs = self.hybrid_similarity(self.target, j, I, beta, verbose)
                     if verbose:
                         print("Similarity(" + str(self.target) + "," + str(j) + ") = " + str(hs))
+                        print()
                     similarty_values.append(hs)
                     if hs > thresh:
                         similar_users.append(j)
         return similar_users
 
+    def predict(self, similar_users, item):
+        r = 0
+        c = 0
+        for j in similar_users:
+            rate = self.R[item - min(self.items)][j - 1]
+            if rate != 0:
+                r += self.R[item - min(self.items)][j - 1]
+                c += 1
+        if c != 0:
+            return r / c
+        else:
+            return 0
+
+    def prediction_matrix(self):
+        P = np.zeros((len(self.items), len(self.users)))
+        for u in self.users:
+            print("TARGET: " + str(u))
+            rs.set_target_user(u)
+            similars = rs.compute_similar_users(0.8, 0.56, verbose=False)
+            for i in rs.items:
+                pred = rs.predict(similars, i)
+                P[i - min(self.items)][u - 1] = pred
+        return P
+
 
 if __name__ == "__main__":
     B_graph = generate_bipartite_graph("rel.rating")
     rs = RS(B_graph)
-    rs.set_target_user(259)
-    print(rs.compute_similar_users(0.3))
+    P = rs.prediction_matrix()
+    np.save("prediction_matrix", P)
