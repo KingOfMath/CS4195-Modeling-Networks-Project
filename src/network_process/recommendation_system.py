@@ -6,6 +6,8 @@ from math import log2
 import numpy as np
 from scipy.spatial.distance import cosine as cos_dist
 import progressbar
+import itertools
+import operator
 
 
 def get_column(i, R):
@@ -95,7 +97,8 @@ class RS:
         s = 0
         for i in range(0, I):
             s += self.de(user_i, user_j, commons[i])
-        return s
+        if s != 0:
+            return s
 
     def probability_function(self, user_i, user_j, item_k, I):
         return self.de(user_i, user_j, item_k) / self.deviation(user_i, user_j, I)
@@ -105,8 +108,6 @@ class RS:
         H = 0
         for i in range(0, I):
             pk = self.probability_function(user_i, user_j, commons[i], I)
-            if pk == 0.0:
-                pk = 0.000000000000000001
             H += pk * log2(pk)
         return -H
 
@@ -137,16 +138,19 @@ class RS:
             users_to_compute = nodes
         bar = progressbar.ProgressBar()
         for j in bar(users_to_compute):
-            if j != self.target:
-                I = int(Wsum[j])
-                if I > 1:
-                    hs = self.hybrid_similarity(self.target, j, I, beta, verbose)
-                    if verbose:
-                        print("Similarity(" + str(self.target) + "," + str(j) + ") = " + str(hs))
-                        print()
-                    similarty_values.append(hs)
-                    if hs > thresh:
-                        similar_users.append(j)
+            try:
+                if j != self.target:
+                    I = int(Wsum[j])
+                    if I > 1:
+                        hs = self.hybrid_similarity(self.target, j, I, beta, verbose)
+                        if verbose:
+                            print("Similarity(" + str(self.target) + "," + str(j) + ") = " + str(hs))
+                            print()
+                        similarty_values.append(hs)
+                        if hs > thresh:
+                            similar_users.append(j)
+            except Exception:
+                pass
         return similar_users
 
     def predict(self, similar_users, item):
@@ -173,9 +177,71 @@ class RS:
                 P[i - min(self.items)][u - 1] = pred
         return P
 
+    def search_best_params(self, test_users, thresholds, betas):
+        vectors_dict = {}
+        for u in test_users:
+            self.set_target_user(u)
+            vectors_dict[u] = {}
+            for t in thresholds:
+                vectors_dict[u][t] = {}
+                for b in betas:
+                    print("user: " + str(u))
+                    print("thresh: " + str(t))
+                    print("beta: " + str(b))
+                    vectors_dict[u][t][b] = {}
+                    items = []
+                    shared_count = []
+                    similars = self.compute_similar_users(t, b, verbose=False)
+                    for s in similars:
+                        items.append(self.commons_items(self.target, s))
+                    all_items = list(itertools.chain.from_iterable(items))
+                    all_items.sort()
+                    all_items = set(all_items)
+                    for it in all_items:
+                        c = 0
+                        for v in items:
+                            if it in v:
+                                c += 1
+                        shared_count.append(c)
+                    vectors_dict[u][t][b]["data"] = shared_count
+                    vectors_dict[u][t][b]["total"] = len(items)
+                    if vectors_dict[u][t][b]["total"] > 5:
+                        print(True)
+            with open('vectors.txt', 'a') as f:
+                f.write(str(u))
+                f.write(str(vectors_dict[u]))
+                f.write("\n")
+        top_sim = 0
+        top_tresh = 0
+        top_beta = 0
+        for u in test_users:
+            for t in thresholds:
+                for b in betas:
+                    print("Similarity for: ")
+                    print(u, t, b)
+                    print()
+                    if vectors_dict[u][t][b]["total"] > 5:
+                        top = [vectors_dict[u][t][b]["total"] for x in range(0, len(vectors_dict[u][t][b]["data"]))]
+                        sim = (1 - cos_dist(top, vectors_dict[u][t][b]["data"])) * vectors_dict[u][t][b]["total"] * vectors_dict[u][t]
+                        if sim > top_sim:
+                            top_sim = sim
+                            top_tresh = t
+                            top_beta = b
+            with open('result.txt', 'a') as f:
+                f.write("TOP PARAMS FOR " + str(u) + " with sim = " + str(top_sim) + " tresh = " + str(
+                    top_tresh) + ", beta = " + str(top_beta))
+                f.write("\n")
+            print("TOP PARAMS FOR " + str(u) + " with sim = " + str(top_sim) + " tresh = " + str(
+                top_tresh) + ", beta = " + str(top_beta))
+
 
 if __name__ == "__main__":
     B_graph = generate_bipartite_graph("rel.rating")
+    test_nodes = []
+    for i in range(1, 943):
+        if B_graph.degree(i) < 40:
+            test_nodes.append(i)
+    t = [0.70, 0.72, 0.74, 0.76, 0.78, 0.80, 0.82, 0.84, 0.86, 0.88, 0.90, 0.92, 0.94, 0.96]
+    b = [0.30, 0.36, 0.40, 0.46, 0.48, 0.50, 0.52, 0.54, 0.58, 0.60, 0.66, 0.68, 0.70]
     rs = RS(B_graph)
-    P = rs.prediction_matrix()
-    np.save("prediction_matrix", P)
+    rs.search_best_params(test_nodes[:50], t, b)
