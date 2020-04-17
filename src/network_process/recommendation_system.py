@@ -6,8 +6,6 @@ from math import log2
 import numpy as np
 from scipy.spatial.distance import cosine as cos_dist
 import progressbar
-import itertools
-import operator
 
 
 def get_column(i, R):
@@ -24,6 +22,17 @@ def vertical_padding(m, n, M):
 
 class RS:
     def __init__(self, G):
+        '''
+        Init system with bipartite graph
+        :param G: bipartite Graph, generated from util.generate_bipartite_graph
+        :var users: user ids in G
+        :var items: item ids in G
+        :var R: adjacency matrix
+        :var U, S, V: SVD decomposition for user vectorization
+        :var R_abs_i: absolute difference matrix (dictionary) between user i and all others users j.
+                      R_abs_i[j][it] abs difference between i and j over common item it
+        :var target: id of target user
+        '''
         self.G = G
         self.users, self.items = bipartite.sets(self.G)
         self.R = bipartite.matrix.biadjacency_matrix(self.G, self.items).toarray().tolist()
@@ -32,6 +41,10 @@ class RS:
         self.target = None
 
     def info(self):
+        '''
+        Print System Information (Matrix dimensions, users_ids, item_ids...)
+        :return:
+        '''
         print()
         print("---- SYSTEM INFO ----")
         print("Bipartite: " + str(nx.is_connected(self.G)))
@@ -47,18 +60,44 @@ class RS:
         print()
 
     def commons_items(self, node_i, node_j):
+        '''
+        :param node_i: user_i id
+        :param node_j: user_j id
+        :return: list of common rated items between i and j
+        '''
         l = [x for x in nx.common_neighbors(self.G, node_i, node_j)]
         l.sort()
         return l
 
     def set_target_user(self, user):
+        '''
+        See also abs_difference_rating_matr
+        :param user: target user id
+        :return:
+        '''
         self.target = user
         self.abs_difference_rating_matr(self.target)
 
     def vectorize_users(self, user, dim=4):
+        '''
+        :param user: user id to vectorize
+        :param dim: dimension of result vector.
+                    SVD organize features importance in decreasing order. V columns collect user representation with
+                    most important features in the first elements of vectors (this why dim = 4, it's like vectorize
+                    users in 4-dimensional space). More dimension are taken, more no relevant features are used.
+                    For cosine similarity is necessary compute similarity among important features since taking all
+                    the whole vectors increse the precision of a single representation but returns bad similarity
+                    comparing unimportant features.
+        :return: vector of V that represent user.
+        '''
         return get_column(user - 1, self.V)[0:dim]
 
     def abs_difference_rating_matr(self, user_i):
+        '''
+        Fill R_abs_i matrix for user i. Call in target user setter.
+        :param user_i: user i id
+        :return:
+        '''
         self.R_abs_i = {u: {} for u in self.users if u != user_i}
         for user_j in self.users:
             if user_j != user_i:
@@ -69,6 +108,12 @@ class RS:
                 self.R_abs_i[user_j] = dict
 
     def count_abs_rating_difference(self, user_j):
+        '''
+        Util function for Equation 2 in paper.
+        :param user_j:
+        :return: a dictionary that contains for each abs_rate_difference (0 (i.e 5-5) to 4 (i.e 5-1)) the number of
+                 items between target and user_j with abs_rate_difference.
+        '''
         dict = {}
         for i in range(5):
             count = Counter(self.R_abs_i[user_j].values())[i]
@@ -76,6 +121,11 @@ class RS:
         return dict
 
     def weighted_sum(self, user_i):
+        '''
+        :param user_i: user id (target)
+        :return: a dictionary with key values all user_j != target and values the weighted sum p(i,j)
+                 as defined in Equation 2
+        '''
         dict = {}
         for user_j in self.users:
             if user_j != user_i:
@@ -84,15 +134,31 @@ class RS:
         return dict
 
     def avg_rate(self, user_id):
+        '''
+        :param user_id: user id
+        :return: average rate based on user_id rates
+        '''
         rates = [x for x in get_column(user_id - 1, self.R) if x != 0]
         return sum(rates) / len(rates)
 
     def de(self, user_i, user_j, item):
+        '''
+        :param user_i:
+        :param user_j:
+        :param item:
+        :return: value defined in Equation 5.
+        '''
         return abs(
             (self.R[item - min(self.items)][user_i - 1] - self.avg_rate(user_i)) - (
                     self.R[item - min(self.items)][user_j - 1] - self.avg_rate(user_j)))
 
     def deviation(self, user_i, user_j, I):
+        '''
+        :param user_i:
+        :param user_j:
+        :param I: cardinality of filtered common items based on weighted sum
+        :return: Deviation across all the co-rated items for the user U i and U j is represented as in Eq. (6)
+        '''
         commons = self.commons_items(user_i, user_j)
         s = 0
         for i in range(0, I):
@@ -101,9 +167,22 @@ class RS:
             return s
 
     def probability_function(self, user_i, user_j, item_k, I):
+        '''
+        :param user_i:
+        :param user_j:
+        :param item_k:
+        :param I:
+        :return: p function Equation 7
+        '''
         return self.de(user_i, user_j, item_k) / self.deviation(user_i, user_j, I)
 
     def entropy(self, user_i, user_j, I):
+        '''
+        :param user_i:
+        :param user_j:
+        :param I:
+        :return: entropy given in Equation 8
+        '''
         commons = self.commons_items(user_i, user_j)
         H = 0
         for i in range(0, I):
@@ -112,15 +191,34 @@ class RS:
         return -H
 
     def simE(self, user_i, user_j, I):
+        '''
+        :param user_i:
+        :param user_j:
+        :param I:
+        :return: simE given in Equation 9
+        '''
         return 1 - (self.entropy(user_i, user_j, I) / log2(I))
 
     def simC(self, user_i, user_j):
+        '''
+        :param user_i:
+        :param user_j:
+        :return: cosine similarity between vectorized users with SVD Decomposition (V matrix)
+        '''
         ui = self.vectorize_users(user_i)
         uj = self.vectorize_users(user_j)
         sim = 1 - cos_dist(ui, uj)
         return sim
 
     def hybrid_similarity(self, user_i, user_j, I, beta, verbose):
+        '''
+        :param user_i:
+        :param user_j:
+        :param I:
+        :param beta:
+        :param verbose:
+        :return: Hybrid similarity proposed in the paper, Equation 10
+        '''
         sim_c = self.simC(user_i, user_j)
         sim_e = self.simE(user_i, user_j, I)
         if verbose:
@@ -129,6 +227,13 @@ class RS:
         return (beta * sim_c) + ((1 - beta) * sim_e)
 
     def compute_similar_users(self, thresh, beta, nodes=None, verbose=True):
+        '''
+        :param thresh:
+        :param beta:
+        :param nodes:
+        :param verbose:
+        :return: Compute similar users . Similar users have hybrid_similarity > thresh
+        '''
         Wsum = self.weighted_sum(self.target)
         similar_users = []
         similarty_values = []
@@ -154,6 +259,11 @@ class RS:
         return similar_users
 
     def predict(self, similar_users, item):
+        '''
+        :param similar_users:
+        :param item:
+        :return: Predicted rates based on similar users (mean of rates)
+        '''
         r = 0
         c = 0
         for j in similar_users:
@@ -167,6 +277,9 @@ class RS:
             return 0
 
     def prediction_matrix(self):
+        '''
+        :return: generate for all users a matrix with all predictions for all items (HUGE COMPUTATION)
+        '''
         P = np.zeros((len(self.items), len(self.users)))
         for u in self.users:
             print("TARGET: " + str(u))
@@ -177,71 +290,39 @@ class RS:
                 P[i - min(self.items)][u - 1] = pred
         return P
 
-    def search_best_params(self, test_users, thresholds, betas):
-        vectors_dict = {}
-        for u in test_users:
-            self.set_target_user(u)
-            vectors_dict[u] = {}
-            for t in thresholds:
-                vectors_dict[u][t] = {}
-                for b in betas:
-                    print("user: " + str(u))
-                    print("thresh: " + str(t))
-                    print("beta: " + str(b))
-                    vectors_dict[u][t][b] = {}
-                    items = []
-                    shared_count = []
-                    similars = self.compute_similar_users(t, b, verbose=False)
-                    for s in similars:
-                        items.append(self.commons_items(self.target, s))
-                    all_items = list(itertools.chain.from_iterable(items))
-                    all_items.sort()
-                    all_items = set(all_items)
-                    for it in all_items:
-                        c = 0
-                        for v in items:
-                            if it in v:
-                                c += 1
-                        shared_count.append(c)
-                    vectors_dict[u][t][b]["data"] = shared_count
-                    vectors_dict[u][t][b]["total"] = len(items)
-                    if vectors_dict[u][t][b]["total"] > 5:
-                        print(True)
-            with open('vectors.txt', 'a') as f:
-                f.write(str(u))
-                f.write(str(vectors_dict[u]))
-                f.write("\n")
-        top_sim = 0
-        top_tresh = 0
-        top_beta = 0
-        for u in test_users:
-            for t in thresholds:
-                for b in betas:
-                    print("Similarity for: ")
-                    print(u, t, b)
-                    print()
-                    if vectors_dict[u][t][b]["total"] > 5:
-                        top = [vectors_dict[u][t][b]["total"] for x in range(0, len(vectors_dict[u][t][b]["data"]))]
-                        sim = (1 - cos_dist(top, vectors_dict[u][t][b]["data"])) * vectors_dict[u][t][b]["total"] * vectors_dict[u][t]
-                        if sim > top_sim:
-                            top_sim = sim
-                            top_tresh = t
-                            top_beta = b
-            with open('result.txt', 'a') as f:
-                f.write("TOP PARAMS FOR " + str(u) + " with sim = " + str(top_sim) + " tresh = " + str(
-                    top_tresh) + ", beta = " + str(top_beta))
-                f.write("\n")
-            print("TOP PARAMS FOR " + str(u) + " with sim = " + str(top_sim) + " tresh = " + str(
-                top_tresh) + ", beta = " + str(top_beta))
+    def compare_predicted_real(self, th=0.7, b=0.7):
+        '''
+        :param th:
+        :param b:
+        :return: Print real rates and predicted for already rated items by target user
+        '''
+        similars = rs.compute_similar_users(th, b, verbose=False)
+        for i in rs.items:
+            pred = rs.predict(similars, i)
+            real = rs.R[i - 1001][self.target - 1]
+            if real != 0:
+                print("ITEMS: ", str(i))
+                print("PREDICTION:" + str(pred))
+                print("REAL:" + str(real))
+
+    def predict_unrated_item(self, th=0.7, b=0.7):
+        '''
+        :param th:
+        :param b:
+        :return: Print real rates and predicted for already UNrated items by target user
+        '''
+        similars = rs.compute_similar_users(th, b, verbose=False)
+        for i in rs.items:
+            pred = rs.predict(similars, i)
+            real = rs.R[i - 1001][self.target - 1]
+            if real == 0:
+                print("ITEMS: ", str(i))
+                print("PREDICTION:" + str(pred))
+                print("REAL:" + str(real))
 
 
 if __name__ == "__main__":
     B_graph = generate_bipartite_graph("rel.rating")
-    test_nodes = []
-    for i in range(1, 943):
-        if B_graph.degree(i) < 40:
-            test_nodes.append(i)
-    t = [0.70, 0.72, 0.74, 0.76, 0.78, 0.80, 0.82, 0.84, 0.86, 0.88, 0.90, 0.92, 0.94, 0.96]
-    b = [0.30, 0.36, 0.40, 0.46, 0.48, 0.50, 0.52, 0.54, 0.58, 0.60, 0.66, 0.68, 0.70]
     rs = RS(B_graph)
-    rs.search_best_params(test_nodes[:50], t, b)
+    rs.set_target_user(500)
+    rs.predict_unrated_item()
