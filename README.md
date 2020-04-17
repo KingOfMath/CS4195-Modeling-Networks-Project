@@ -31,4 +31,7 @@
 ## RS class
 https://www.researchgate.net/publication/320549502_Weighted_Bipartite_Graph_Model_for_Recommender_System_Using_Entropy_Based_Similarity_Measure
 
+## Same dataset method
+https://www.researchgate.net/publication/266646688_A_Graph_Model_for_Recommender_Systems
+
 
