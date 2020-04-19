@@ -5,18 +5,12 @@ from collections import Counter
 from math import log2
 import numpy as np
 from scipy.spatial.distance import cosine as cos_dist
+import time
 import progressbar
-from scipy.stats import pearsonr
 
 
 def get_column(i, R):
     return [row[i] for row in R]
-
-
-def normalize_matrix(W):
-    Wmax, Wmin = W.max(), W.min()
-    W = (W - Wmin) / (Wmax - Wmin)
-    return W
 
 
 def vertical_padding(m, n, M):
@@ -28,6 +22,7 @@ def vertical_padding(m, n, M):
 
 
 class RS:
+
     def __init__(self, G):
         '''
         Init system with bipartite graph
@@ -43,6 +38,7 @@ class RS:
         self.G = G
         self.users, self.items = bipartite.sets(self.G)
         self.R = bipartite.matrix.biadjacency_matrix(self.G, self.items).toarray().tolist()
+        self.U, self.S, self.V = np.linalg.svd(self.R)
         self.R_abs_i = None
         self.target = None
 
@@ -84,6 +80,20 @@ class RS:
         self.target = user
         self.abs_difference_rating_matr(self.target)
 
+    def vectorize_users(self, user, dim=25):
+        '''
+        :param user: user id to vectorize
+        :param dim: dimension of result vector.
+                    SVD organize features importance in decreasing order. V columns collect user representation with
+                    most important features in the first elements of vectors (this why dim = 3, it's like vectorize
+                    users in 3-dimensional space). More dimension are taken, more no relevant features are used.
+                    For cosine similarity is necessary compute similarity among important features since taking all
+                    the whole vectors increse the precision of a single representation but returns bad similarity
+                    comparing unimportant features.
+        :return: vector of V that represent user.
+        '''
+        return get_column(user - 1, self.V)[0:dim]
+
     def abs_difference_rating_matr(self, user_i):
         '''
         Fill R_abs_i matrix for user i. Call in target user setter.
@@ -97,6 +107,7 @@ class RS:
                 dict = {}
                 for c in commons:
                     dict[c] = abs(self.R[c - min(self.items)][user_i - 1] - self.R[c - min(self.items)][user_j - 1])
+                dict = {k: v for k, v in sorted(dict.items(), key=lambda item: item[1])}  # ORDERING DICT IMPORTANT
                 self.R_abs_i[user_j] = dict
 
     def count_abs_rating_difference(self, user_j):
@@ -175,7 +186,7 @@ class RS:
         :param I:
         :return: entropy given in Equation 8
         '''
-        commons = self.commons_items(user_i, user_j)
+        commons = list(self.R_abs_i[user_j].keys())
         H = 0
         for i in range(0, I):
             pk = self.probability_function(user_i, user_j, commons[i], I)
@@ -191,49 +202,29 @@ class RS:
         '''
         return 1 - (self.entropy(user_i, user_j, I) / log2(I))
 
-    def simC(self, user_i, user_j):
-        num = 0
-        sum1 = 0
-        sum2 = 0
-        for it in self.items:
-            num += self.R[it - 1001][user_i - 1] * self.R[it - 1001][user_j - 1]
-            sum1 += np.power(self.R[it - 1001][user_i - 1], 2)
-            sum2 += np.power(self.R[it - 1001][user_j - 1], 2)
-        den = np.sqrt(sum1) * np.sqrt(sum2)
-        return num / den
+    def simC(self, user_i, user_j, vector_type):
+        '''
+        :param user_i:
+        :param user_j:
+        :return: simC
+        '''
+        if vector_type == 'svd':
+            ui = self.vectorize_users(user_i)
+            uj = self.vectorize_users(user_j)
+            sim = 1 - cos_dist(ui, uj)
+            return sim
+        elif vector_type == 'chen':
+            num = 0
+            sum1 = 0
+            sum2 = 0
+            for it in self.items:
+                num += self.R[it - 1001][user_i - 1] * self.R[it - 1001][user_j - 1]
+                sum1 += np.power(self.R[it - 1001][user_i - 1], 2)
+                sum2 += np.power(self.R[it - 1001][user_j - 1], 2)
+            den = np.sqrt(sum1) * np.sqrt(sum2)
+            return num / den
 
-    def simP_item(self, item_i, item_j):
-        num = 0
-        Ri = 0
-        Rj = 0
-        sum1 = 0
-        sum2 = 0
-        for user in self.users:
-            Ri += self.R[item_i - 1001][user - 1]
-            Rj += self.R[item_j - 1001][user - 1]
-        avg_Ri = Ri / len(self.users)
-        avg_Rj = Rj / len(self.users)
-        for user in self.users:
-            num += (self.R[item_i - 1001][user - 1] - avg_Ri) * (self.R[item_j - 1001][user - 1] - avg_Rj)
-            sum1 += np.power((self.R[item_i - 1001][user - 1] - avg_Ri), 2)
-            sum2 += np.power((self.R[item_j - 1001][user - 1] - avg_Rj), 2)
-        den = np.sqrt(sum1) * np.sqrt(sum2)
-        return num / den
-
-    def simP_user(self, user_i, user_j):
-        num = 0
-        sum1 = 0
-        sum2 = 0
-        avg_Ri = self.avg_rate(user_i)
-        avg_Rj = self.avg_rate(user_j)
-        for it in self.items:
-            num += (self.R[it - 1001][user_i - 1] - avg_Ri) * (self.R[it - 1001][user_j - 1] - avg_Rj)
-            sum1 += np.power((self.R[it - 1001][user_i - 1] - avg_Ri), 2)
-            sum2 += np.power((self.R[it - 1001][user_j - 1] - avg_Rj), 2)
-        den = np.sqrt(sum1) * np.sqrt(sum2)
-        return num / den
-
-    def hybrid_similarity(self, user_i, user_j, I, beta, verbose):
+    def hybrid_similarity(self, user_i, user_j, I, beta, cos_vector_type, verbose):
         '''
         :param user_i:
         :param user_j:
@@ -242,15 +233,16 @@ class RS:
         :param verbose:
         :return: Hybrid similarity proposed in the paper, Equation 10
         '''
-        sim_c = self.simC(user_i, user_j)
+        sim_c = self.simC(user_i, user_j, cos_vector_type)
         sim_e = self.simE(user_i, user_j, I)
         if verbose:
             print("Cosine: " + str(sim_c))
             print("Entropy: " + str(sim_e))
         return (beta * sim_c) + ((1 - beta) * sim_e)
 
-    def compute_similar_users(self, thresh, beta, nodes=None, verbose=True):
+    def compute_similar_users(self, thresh, beta, cos_vector_type='chen', nodes=None, verbose=True):
         '''
+        :param cos_vector_type: Type of vectorization for cosine: 'svd' for SVD Decomposition, 'chen' for Chen2013 prop.
         :param thresh:
         :param beta:
         :param nodes:
@@ -272,14 +264,13 @@ class RS:
             try:
                 if j != self.target:
                     I = int(Wsum[j])
-                    if I > 1:
-                        hs = self.hybrid_similarity(self.target, j, I, beta, verbose)
-                        if verbose:
-                            print("Similarity(" + str(self.target) + "," + str(j) + ") = " + str(hs))
-                            print()
-                        similarty_values.append(hs)
-                        if hs > thresh:
-                            similar_users.append(j)
+                    hs = self.hybrid_similarity(self.target, j, I, beta, cos_vector_type, verbose)
+                    if verbose:
+                        print("Similarity(" + str(self.target) + "," + str(j) + ") = " + str(hs))
+                        print()
+                    similarty_values.append(hs)
+                    if hs > thresh:
+                        similar_users.append(j)
             except Exception:
                 pass
         return similar_users
@@ -302,21 +293,7 @@ class RS:
         else:
             return 0
 
-    def prediction_matrix(self):
-        '''
-        :return: generate for all users a matrix with all predictions for all items (HUGE COMPUTATION)
-        '''
-        P = np.zeros((len(self.items), len(self.users)))
-        for u in self.users:
-            print("TARGET: " + str(u))
-            rs.set_target_user(u)
-            similars = rs.compute_similar_users(0.8, 0.56, verbose=False)
-            for i in rs.items:
-                pred = rs.predict(similars, i)
-                P[i - min(self.items)][u - 1] = pred
-        return P
-
-    def compare_predicted_real(self, th=0.7, b=0.7):
+    def compare_predicted_real(self, th=0.7, b=0.56):
         '''
         :param th:
         :param b:
@@ -348,34 +325,11 @@ class RS:
                 print("REAL:" + str(real))
                 print()
 
-    def resource_allocation_matrix(self):
-        P = np.zeros((len(self.items), len(self.items)))
-        for i, it_i in enumerate(self.items):
-            for j, it_j in enumerate(self.items):
-                P[i][j] = self.simP_item(it_i, it_j)
-        W = np.zeros((len(self.items), len(self.users)))
-        w = np.zeros((len(self.items), len(self.items)))
-        sum = 0
-        for i, item_i in enumerate(self.items):
-            for j, item_j in enumerate(self.items):
-                for k, user in enumerate(self.users):
-                    sum += self.R[item_i - 1001][user - 1] * self.R[item_j - 1001][user - 1] / self.G.degree(
-                        self.items[k])
-                w[i][j] = sum / self.G.degree(item_j)
-                W = np.dot(P, w)
-                Wmax, Wmin = W.max(), W.min()
-                W = (W - Wmin) / (Wmax - Wmin)
-        self.W = normalize_matrix(W)
-
-    def reccomendation_matrix(self):
-        self.resource_allocation_matrix()
-        f_1 = np.dot(self.W, self.columns(self.target))
-        return f_1
-
 
 if __name__ == "__main__":
     B_graph = generate_bipartite_graph("rel.rating")
     rs = RS(B_graph)
-    rs.set_target_user(4)
-    similars = rs.compute_similar_users(0.5, 0.40, verbose=False)
-    print(similars)
+    rs.set_target_user(390)
+    print(rs.compute_similar_users(0.5, 0.56, 'svd', verbose=False))
+    print(rs.compute_similar_users(0.4, 0.56, 'chen', verbose=False))
+
