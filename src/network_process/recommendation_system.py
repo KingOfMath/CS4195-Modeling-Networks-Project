@@ -344,6 +344,7 @@ class RS:
 if __name__ == "__main__":
     B_graph = generate_bipartite_graph("rel.rating")
     rs = RS(B_graph)
-    test_set = [x for x in rs.users if rs.G.degree(x) < 50][:30]
+    test_set = [random.randint(1, 943) for x in range(10)] # change range(N) to specify how many users in test_set
     p, r = rs.eval_test_set(test_set)
     print("Precision: " + str(p) + "\nRecall:" + str(r))
+
