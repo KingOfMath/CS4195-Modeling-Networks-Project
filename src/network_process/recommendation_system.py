@@ -12,13 +12,6 @@ from scipy.stats import pearsonr
 def get_column(i, R):
     return [row[i] for row in R]
 
-
-def normalize_matrix(W):
-    Wmax, Wmin = W.max(), W.min()
-    W = (W - Wmin) / (Wmax - Wmin)
-    return W
-
-
 def vertical_padding(m, n, M):
     for i in range(0, m - n):
         pad = np.zeros((n + 1 + i, n))
@@ -34,8 +27,6 @@ class RS:
         :param G: bipartite Graph, generated from util.generate_bipartite_graph
         :var users: user ids in G
         :var items: item ids in G
-        :var R: adjacency matrix
-        :var U, S, V: SVD decomposition for user vectorization
         :var R_abs_i: absolute difference matrix (dictionary) between user i and all others users j.
                       R_abs_i[j][it] abs difference between i and j over common item it
         :var target: id of target user
@@ -192,6 +183,11 @@ class RS:
         return 1 - (self.entropy(user_i, user_j, I) / log2(I))
 
     def simC(self, user_i, user_j):
+        '''
+        :param user_i:
+        :param user_j:
+        :return: Cosine similarity
+        '''
         num = 0
         sum1 = 0
         sum2 = 0
@@ -199,37 +195,6 @@ class RS:
             num += self.R[it - 1001][user_i - 1] * self.R[it - 1001][user_j - 1]
             sum1 += np.power(self.R[it - 1001][user_i - 1], 2)
             sum2 += np.power(self.R[it - 1001][user_j - 1], 2)
-        den = np.sqrt(sum1) * np.sqrt(sum2)
-        return num / den
-
-    def simP_item(self, item_i, item_j):
-        num = 0
-        Ri = 0
-        Rj = 0
-        sum1 = 0
-        sum2 = 0
-        for user in self.users:
-            Ri += self.R[item_i - 1001][user - 1]
-            Rj += self.R[item_j - 1001][user - 1]
-        avg_Ri = Ri / len(self.users)
-        avg_Rj = Rj / len(self.users)
-        for user in self.users:
-            num += (self.R[item_i - 1001][user - 1] - avg_Ri) * (self.R[item_j - 1001][user - 1] - avg_Rj)
-            sum1 += np.power((self.R[item_i - 1001][user - 1] - avg_Ri), 2)
-            sum2 += np.power((self.R[item_j - 1001][user - 1] - avg_Rj), 2)
-        den = np.sqrt(sum1) * np.sqrt(sum2)
-        return num / den
-
-    def simP_user(self, user_i, user_j):
-        num = 0
-        sum1 = 0
-        sum2 = 0
-        avg_Ri = self.avg_rate(user_i)
-        avg_Rj = self.avg_rate(user_j)
-        for it in self.items:
-            num += (self.R[it - 1001][user_i - 1] - avg_Ri) * (self.R[it - 1001][user_j - 1] - avg_Rj)
-            sum1 += np.power((self.R[it - 1001][user_i - 1] - avg_Ri), 2)
-            sum2 += np.power((self.R[it - 1001][user_j - 1] - avg_Rj), 2)
         den = np.sqrt(sum1) * np.sqrt(sum2)
         return num / den
 
@@ -347,30 +312,6 @@ class RS:
                 print("PREDICTION:" + str(pred))
                 print("REAL:" + str(real))
                 print()
-
-    def resource_allocation_matrix(self):
-        P = np.zeros((len(self.items), len(self.items)))
-        for i, it_i in enumerate(self.items):
-            for j, it_j in enumerate(self.items):
-                P[i][j] = self.simP_item(it_i, it_j)
-        W = np.zeros((len(self.items), len(self.users)))
-        w = np.zeros((len(self.items), len(self.items)))
-        sum = 0
-        for i, item_i in enumerate(self.items):
-            for j, item_j in enumerate(self.items):
-                for k, user in enumerate(self.users):
-                    sum += self.R[item_i - 1001][user - 1] * self.R[item_j - 1001][user - 1] / self.G.degree(
-                        self.items[k])
-                w[i][j] = sum / self.G.degree(item_j)
-                W = np.dot(P, w)
-                Wmax, Wmin = W.max(), W.min()
-                W = (W - Wmin) / (Wmax - Wmin)
-        self.W = normalize_matrix(W)
-
-    def reccomendation_matrix(self):
-        self.resource_allocation_matrix()
-        f_1 = np.dot(self.W, self.columns(self.target))
-        return f_1
 
 
 if __name__ == "__main__":
