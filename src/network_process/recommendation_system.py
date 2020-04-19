@@ -293,43 +293,57 @@ class RS:
         else:
             return 0
 
-    def compare_predicted_real(self, th=0.7, b=0.56):
-        '''
-        :param th:
-        :param b:
-        :return: Print real rates and predicted for already rated items by target user
-        '''
-        similars = rs.compute_similar_users(th, b, verbose=False)
+    def topN(self, N, thresh, beta, cos_vector_type, verbose=False):
+        similars = self.compute_similar_users(thresh, beta, cos_vector_type=cos_vector_type, verbose=verbose)
+        predictions = []
         for i in rs.items:
-            pred = rs.predict(similars, i)
-            real = rs.R[i - 1001][self.target - 1]
-            if real != 0:
-                print("ITEMS: ", str(i))
-                print("PREDICTION:" + str(pred))
-                print("REAL:" + str(real))
-                print()
+            predictions.append((i, self.predict(similars, i)))
+        predictions = sorted(predictions, key=lambda x: x[1], reverse=True)
+        return predictions[:N]
 
-    def predict_unrated_item(self, th=0.7, b=0.7):
+    def evaluation(self, topN, t=3.5):
         '''
-        :param th:
-        :param b:
-        :return: Print real rates and predicted for already UNrated items by target user
+        items = [x[0] for x in topN]
+        real = [self.R[x[0] - min(self.items)][self.target - 1] for x in topN]
+        predict = [x[1] for x in topN]
+        TP = 0
+        FP = 0
+        FN = 0
+        TN = 0
+        for i in range(len(topN)):
+            if real[i] > t and predict[i] > t:
+                TP += 1
+            elif real[i] < t < predict[i]:
+                FP += 1
+            elif real[i] > t > predict[i]:
+                FN += 1
+            elif real[i] < t and predict[i] < t:
+                TN += 1
+
+        accuracy = (TP + TN) / len(items)
         '''
-        similars = rs.compute_similar_users(th, b, verbose=False)
-        for i in rs.items:
-            pred = rs.predict(similars, i)
-            real = rs.R[i - 1001][self.target - 1]
-            if real == 0:
-                print("ITEMS: ", str(i))
-                print("PREDICTION:" + str(pred))
-                print("REAL:" + str(real))
-                print()
+        relevant = [x[0] for x in topN if self.R[x[0] - min(self.items)][self.target - 1] > t]
+        recommended = [x[0] for x in topN if x[1] > t]
+        intersection = len(set(relevant) & set(recommended))
+        precision = intersection / len(recommended)
+        recall = intersection / len(relevant)
+        return precision, recall
+
+    def eval_test_set(self, test_set, cosine_vect_type='chen'):
+        prec = []
+        recall = []
+        for u in test_set:
+            self.set_target_user(u)
+            topN = self.topN(1685, 0.4, 0.56, cosine_vect_type, verbose=False)
+            p, r = self.evaluation(topN)
+            prec.append(p)
+            recall.append(r)
+        return sum(prec) / len(prec), sum(recall) / len(recall)
 
 
 if __name__ == "__main__":
     B_graph = generate_bipartite_graph("rel.rating")
     rs = RS(B_graph)
-    rs.set_target_user(390)
-    print(rs.compute_similar_users(0.5, 0.56, 'svd', verbose=False))
-    print(rs.compute_similar_users(0.4, 0.56, 'chen', verbose=False))
-
+    test_set = [x for x in rs.users if rs.G.degree(x) < 50][:30]
+    p, r = rs.eval_test_set(test_set)
+    print("Precision: " + str(p) + "\nRecall:" + str(r))
