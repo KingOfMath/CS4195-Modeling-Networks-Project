@@ -40,3 +40,14 @@ def generate_bipartite_graph(raws_file=None):
     else:
         print("[ERROR] Specify source file")
     return G
+
+
+def normalize_matrix(W):
+    Wmax, Wmin = W.max(), W.min()
+    W = (W - Wmin) / (Wmax - Wmin)
+    return W
+
+
+def get_column(i, R):
+    return [row[i] for row in R]
+

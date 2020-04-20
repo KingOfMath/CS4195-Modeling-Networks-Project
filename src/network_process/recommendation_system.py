@@ -114,7 +114,6 @@ class RS:
                 commons = self.commons_items(user_i, user_j)
                 dict = {}
                 for c in commons:
-                    print(self.T[c - min(self.items)][user_i - 1], self.T[c - min(self.items)][user_j - 1])
                     dict[c] = abs(self.T[c - min(self.items)][user_i - 1] - self.T[c - min(self.items)][user_j - 1])
                 dict = {k: v for k, v in sorted(dict.items(), key=lambda item: item[1])}  # ORDERING DICT IMPORTANT
                 self.T_abs_i[user_j] = dict
@@ -159,7 +158,6 @@ class RS:
                 for i in self.R_abs_i[user_j]:
                     value = int(self.R_abs_i[user_j][i])
                     sum += w[value] * (1 - self.T_abs_i[user_j][i])
-                print(user_j, sum)
                 dict[user_j] = sum
         return dict
 
@@ -269,7 +267,7 @@ class RS:
             print("Entropy: " + str(sim_e))
         return (beta * sim_c) + ((1 - beta) * sim_e)
 
-    def compute_similar_users(self, thresh, beta, cos_vector_type='chen', nodes=None, verbose=True):
+    def compute_similar_users(self, thresh, beta, cos_vector_type='chen', filtering = 'temporal', nodes=None, verbose=True):
         '''
         :param cos_vector_type: Type of vectorization for cosine: 'svd' for SVD Decomposition, 'chen' for Chen2013 prop.
         :param thresh:
@@ -278,7 +276,10 @@ class RS:
         :param verbose:
         :return: Compute similar users . Similar users have hybrid_similarity > thresh
         '''
-        Wsum = self.weighted_sum(self.target)
+        if filtering == 'temporal':
+            Wsum = self.temporal_weighted_sum(self.target)
+        elif filtering == 'count':
+            Wsum = self.weighted_sum(self.target)
         similar_users = []
         similarty_values = []
         if nodes is None:
@@ -322,8 +323,8 @@ class RS:
         else:
             return 0
 
-    def topN(self, N, thresh, beta, cos_vector_type, verbose=False):
-        similars = self.compute_similar_users(thresh, beta, cos_vector_type=cos_vector_type, verbose=verbose)
+    def topN(self, N, thresh, beta, cos_vector_type, filtering, verbose=False):
+        similars = self.compute_similar_users(thresh, beta, cos_vector_type=cos_vector_type, filtering=filtering, verbose=verbose)
         predictions = []
         for i in rs.items:
             predictions.append((i, self.predict(similars, i)))
@@ -358,12 +359,15 @@ class RS:
         recall = intersection / len(relevant)
         return precision, recall
 
-    def eval_test_set(self, test_set, cosine_vect_type='chen'):
+    def eval_test_set(self, test_set, filter='count', cosine_vect_type='chen'):
+        print("TEST_SET: "+str(test_set))
+        degree = [self.G.degree(x) for x in test_set]
+        print("TEST_SET_DEGREE: "+ str(degree))
         prec = []
         recall = []
         for u in test_set:
             self.set_target_user(u)
-            topN = self.topN(1685, 0.4, 0.56, cosine_vect_type, verbose=False)
+            topN = self.topN(1685, 0.4, 0.56, cosine_vect_type, filtering=filter, verbose=False)
             p, r = self.evaluation(topN)
             prec.append(p)
             recall.append(r)
@@ -373,5 +377,7 @@ class RS:
 if __name__ == "__main__":
     B_graph = generate_bipartite_graph("rel.rating")
     rs = RS(B_graph)
-    rs.set_target_user(390)
-    
+    test_set = [random.randint(1, 943) for x in range(50)]  # change range(N) to specify how many users in test_set
+    p, r = rs.eval_test_set(test_set)
+    print("Precision: " + str(p) + "\nRecall:" + str(r))
+
