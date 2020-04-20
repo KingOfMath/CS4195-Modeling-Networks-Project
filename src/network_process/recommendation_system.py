@@ -1,24 +1,12 @@
 import networkx as nx
-from util import generate_bipartite_graph
+from util import generate_bipartite_graph, get_column, normalize_matrix
 from networkx.algorithms import bipartite
 from collections import Counter
 from math import log2
 import numpy as np
 from scipy.spatial.distance import cosine as cos_dist
-import time
+import random
 import progressbar
-
-
-def get_column(i, R):
-    return [row[i] for row in R]
-
-
-def vertical_padding(m, n, M):
-    for i in range(0, m - n):
-        pad = np.zeros((n + 1 + i, n))
-        pad[:-1, :] = M
-        M = pad
-    return M
 
 
 class RS:
@@ -38,8 +26,11 @@ class RS:
         self.G = G
         self.users, self.items = bipartite.sets(self.G)
         self.R = bipartite.matrix.biadjacency_matrix(self.G, self.items).toarray().tolist()
+        self.T = bipartite.matrix.biadjacency_matrix(self.G, self.items, weight='timestamp').toarray().tolist()
+        self.T = normalize_matrix(np.array(self.T))
         self.U, self.S, self.V = np.linalg.svd(self.R)
         self.R_abs_i = None
+        self.T_abs_i = None
         self.target = None
 
     def info(self):
@@ -79,6 +70,7 @@ class RS:
         '''
         self.target = user
         self.abs_difference_rating_matr(self.target)
+        self.abs_difference_time_matr(self.target)
 
     def vectorize_users(self, user, dim=25):
         '''
@@ -110,6 +102,23 @@ class RS:
                 dict = {k: v for k, v in sorted(dict.items(), key=lambda item: item[1])}  # ORDERING DICT IMPORTANT
                 self.R_abs_i[user_j] = dict
 
+    def abs_difference_time_matr(self, user_i):
+        '''
+        Fill T_abs_i matrix for user i. Call in target user setter.
+        :param user_i: user i id
+        :return:
+        '''
+        self.T_abs_i = {u: {} for u in self.users if u != user_i}
+        for user_j in self.users:
+            if user_j != user_i:
+                commons = self.commons_items(user_i, user_j)
+                dict = {}
+                for c in commons:
+                    print(self.T[c - min(self.items)][user_i - 1], self.T[c - min(self.items)][user_j - 1])
+                    dict[c] = abs(self.T[c - min(self.items)][user_i - 1] - self.T[c - min(self.items)][user_j - 1])
+                dict = {k: v for k, v in sorted(dict.items(), key=lambda item: item[1])}  # ORDERING DICT IMPORTANT
+                self.T_abs_i[user_j] = dict
+
     def count_abs_rating_difference(self, user_j):
         '''
         Util function for Equation 2 in paper.
@@ -135,6 +144,25 @@ class RS:
                 count = self.count_abs_rating_difference(user_j)
                 dict[user_j] = 1 * count[0] + 0.8 * count[1] + 0.6 * count[2] + 0.4 * count[3] + 0.2 * count[4]
         return dict
+
+    def temporal_weighted_sum(self, user_i):
+        '''
+        :param user_i: user id (target)
+        :return: a dictionary with key values all user_j != target and values the weighted sum p(i,j)
+                 as defined in Equation 2
+        '''
+        w = [1, 0.8, 0.6, 0.4, 0.2]
+        dict = {}
+        for user_j in self.users:
+            sum = 0
+            if user_j != user_i:
+                for i in self.R_abs_i[user_j]:
+                    value = int(self.R_abs_i[user_j][i])
+                    sum += w[value] * (1 - self.T_abs_i[user_j][i])
+                print(user_j, sum)
+                dict[user_j] = sum
+        return dict
+
 
     def avg_rate(self, user_id):
         '''
@@ -226,6 +254,7 @@ class RS:
 
     def hybrid_similarity(self, user_i, user_j, I, beta, cos_vector_type, verbose):
         '''
+        :param cos_vector_type:
         :param user_i:
         :param user_j:
         :param I:
@@ -344,7 +373,5 @@ class RS:
 if __name__ == "__main__":
     B_graph = generate_bipartite_graph("rel.rating")
     rs = RS(B_graph)
-    test_set = [random.randint(1, 943) for x in range(10)] # change range(N) to specify how many users in test_set
-    p, r = rs.eval_test_set(test_set)
-    print("Precision: " + str(p) + "\nRecall:" + str(r))
-
+    rs.set_target_user(390)
+    
