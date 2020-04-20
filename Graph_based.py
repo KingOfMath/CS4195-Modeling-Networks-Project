@@ -36,6 +36,6 @@ user_index = [1,2,3,4,5,6,7,173,93,49]
 co_rated = sub_matrix(user_index,matrix)
 top_set = filter_top_items(co_rated,10,user_index)
 
-input()
+np.save('Recommendation list',top_set)
 
 
